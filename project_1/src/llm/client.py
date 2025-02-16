@@ -7,7 +7,7 @@ from ..utils.logger import logger
 
 class Message(BaseModel):
     """Model for chat message"""
-    role: str = Field(..., regex='^(user|assistant|system)$')
+    role: str = Field(..., pattern='^(user|assistant|system)$')
     content: str
     
 class ImageURL(BaseModel):
@@ -17,7 +17,7 @@ class ImageURL(BaseModel):
 
 class VisionMessage(BaseModel):
     """Model for vision message"""
-    role: str = Field(..., regex='^(user|assistant|system)$')
+    role: str = Field(..., pattern='^(user|assistant|system)$')
     content: Union[str, List[Union[str, Dict[str, Any]]]]
 
 class LLMResponse(BaseModel):
