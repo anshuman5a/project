@@ -66,57 +66,49 @@ app.add_middleware(
     allowed_hosts=["*"]  # Configure as needed
 )
 
-@app.post("/run", response_model=Dict[str, Any])
+@app.post("/run")
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/{RATE_LIMIT_PERIOD}s") if RATE_LIMIT_ENABLED else lambda x: x
-async def run_task(request: Request, task_req: TaskRequest):
-    """
-    Execute a task based on the provided description
-    
-    Args:
-        request: FastAPI request object
-        task_req: Task request containing the task description
-        
-    Returns:
-        Dict containing task execution status and info
-        
-    Raises:
-        HTTPException: For various error conditions
-    """
+async def run_task(
+    request: Request,
+    task_req: Optional[TaskRequest] = None,
+    task: str = Query(None, description="Task description if sent as query parameter")
+):
     try:
-        # Parse task
-        task_info = await parser.parse_task(task_req.task)
-        logger.info(f"Parsed task info: {task_info}")
-        
-        # Execute task
-        try:
-            success = await executor.execute_task(task_info)
-            
-            if success:
-                return {
-                    "status": "success",
-                    "message": "Task executed successfully",
-                    "task_info": task_info,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-                
-        except Exception as e:
-            logger.error(f"Task execution error: {str(e)}")
+        # Get task either from JSON body or query parameter
+        task_description = task_req.task if task_req else task
+        if not task_description:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Task execution failed: {str(e)}"
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Task description is required either in request body or as query parameter"
             )
-            
-    except ValueError as e:
-        logger.error(f"Bad request: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail=str(e)
-        )
+
+        # Parse and validate the task
+        parsed_task = parser.parse(task_description)
+        if not parsed_task:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid task format"
+            )
+
+        # Security check
+        security.validate_task(parsed_task)
+
+        # Execute the task
+        result = await executor.execute(parsed_task)
+        
+        return {
+            "status": "success",
+            "task": parsed_task,
+            "result": result
+        }
+
     except Exception as e:
-        logger.error(f"Server error: {str(e)}")
+        logger.error(f"Task execution failed: {str(e)}")
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=f"Task execution failed: {str(e)}"
         )
 
 @app.get("/read", response_model=Dict[str, str])
